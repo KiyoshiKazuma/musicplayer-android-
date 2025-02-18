@@ -1,8 +1,12 @@
 package com.example.musicplayer
 
 import android.content.Context
+import android.database.Cursor
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -40,10 +44,14 @@ class MainActivity : ComponentActivity() {
 fun MusicPlayer(context: Context) {
     val exoPlayer = remember { ExoPlayer.Builder(context).build() }
     var isPlaying by remember { mutableStateOf(false) }
+    var filename by remember { mutableStateOf("ファイル未選択") }
+    var metadata by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
             uri?.let {
+                filename = getFileName(context, it) // ファイル名を取得
+                metadata = getMp3Metadata(context, it) // 🔹 ファイル名を取得
                 exoPlayer.setMediaItem(MediaItem.fromUri(it))
                 exoPlayer.prepare()
                 exoPlayer.play()
@@ -71,6 +79,19 @@ fun MusicPlayer(context: Context) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+
+        PlayerDisplay(
+            filename = filename,
+            metadata = metadata,
+            position = position,
+            duration = duration,
+            sliderPosition = sliderPosition,
+            onSeekChanged = { newPosition -> sliderPosition = newPosition }, // スライダー移動
+            onSeekEnd = { newPosition ->
+                isUserSeeking = false
+                exoPlayer.seekTo(newPosition.toLong()) // シーク完了時にシーク
+            }
+        )
         if (isPlaying) {
             Button(onClick = {
                 if (exoPlayer.isPlaying) {
@@ -84,18 +105,6 @@ fun MusicPlayer(context: Context) {
             }
             Spacer(modifier = Modifier.height(16.dp))
         }
-
-        PlayerDisplay(
-            filename = "filename",
-            position = position,
-            duration = duration,
-            sliderPosition = sliderPosition,
-            onSeekChanged = { newPosition -> sliderPosition = newPosition }, // スライダー移動
-            onSeekEnd = { newPosition ->
-                isUserSeeking = false
-                exoPlayer.seekTo(newPosition.toLong()) // シーク完了時にシーク
-            }
-        )
 
         Button(onClick = { launcher.launch("audio/*") }) {
             Text("音楽を選択")
@@ -111,7 +120,8 @@ fun MusicPlayer(context: Context) {
 
 @Composable
 fun PlayerDisplay(
-    filename: String,
+    filename : String,
+    metadata : Map<String, String>,
     position: Long,
     duration: Long,
     sliderPosition: Float,
@@ -119,7 +129,10 @@ fun PlayerDisplay(
     onSeekEnd: (Float) -> Unit
 ) {
     if (duration > 1L) { // 音楽が選択された場合のみ表示
-        Text(text = filename)
+        Text(text = "ファイル名 : ${filename}")
+        Text(text = "タイトル : ${metadata["title"]}")
+        Text(text = "アーティスト : ${metadata["artist"]}")
+        Text(text = "アルバム名 : ${metadata["album"]}")
         Text("再生時間: ${formatTime(position)} / ${formatTime(duration)}")
 
         Slider(
@@ -140,4 +153,47 @@ fun formatTime(ms: Long): String {
     val minutes = (ms / 1000) / 60
     val seconds = (ms / 1000) % 60
     return "%02d:%02d".format(minutes, seconds)
+}
+
+fun getFileName(context: Context, uri: Uri): String {
+    var name = "unknown"
+    val cursor: Cursor? = context.contentResolver.query(uri, null, null, null, null)
+    cursor?.use {
+        if (it.moveToFirst()) {
+            val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex != -1) {
+                name = it.getString(nameIndex)
+            }
+        }
+    }
+    return name
+}
+
+fun getMp3Metadata(context: Context, uri: Uri): Map<String, String> {
+    val retriever = MediaMetadataRetriever()
+    val metadata = mutableMapOf<String, String>()
+
+    try {
+        // Uri をセット
+        context.contentResolver.openFileDescriptor(uri, "r")?.fileDescriptor?.let {
+            retriever.setDataSource(it)
+        }
+
+        // メタデータを取得
+        metadata["title"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: "Unknown Title"
+        metadata["artist"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "Unknown Artist"
+        metadata["album"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "Unknown Album"
+        metadata["genre"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE) ?: "Unknown Genre"
+        metadata["duration"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION) ?: "Unknown Duration"
+
+        // デバッグログ追加
+        Log.d("Metadata", "Title: ${metadata["title"]}, Artist: ${metadata["artist"]}, Album: ${metadata["album"]}")
+
+    } catch (e: Exception) {
+        e.printStackTrace()
+    } finally {
+        retriever.release()
+    }
+
+    return metadata
 }
