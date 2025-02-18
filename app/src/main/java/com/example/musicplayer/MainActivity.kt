@@ -90,8 +90,6 @@ fun MusicPlayer(context: Context) {
             position = position,
             duration = duration,
             sliderPosition = sliderPosition,
-            isUserSeeking = isUserSeeking,
-            onSeekStart = { isUserSeeking = true }, // シーク開始
             onSeekChanged = { newPosition -> sliderPosition = newPosition }, // スライダー移動
             onSeekEnd = { newPosition ->
                 isUserSeeking = false
@@ -117,8 +115,6 @@ fun PlayerDisplay(
     position: Long,
     duration: Long,
     sliderPosition: Float,
-    isUserSeeking: Boolean,
-    onSeekStart: () -> Unit,
     onSeekChanged: (Float) -> Unit,
     onSeekEnd: (Float) -> Unit
 ) {
